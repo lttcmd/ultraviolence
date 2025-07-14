@@ -254,8 +254,8 @@ setInterval(() => {
           break;
         }
       } else {
-        // Normal bullet: point in player box
-        if (b.x >= p.x && b.x <= p.x + 20 && b.y >= p.y && b.y <= p.y + 20) {
+        // Normal bullet: point in slightly larger player box (24x24)
+        if (b.x >= p.x - 2 && b.x <= p.x + 22 && b.y >= p.y - 2 && b.y <= p.y + 22) {
           p.hp = Math.max(0, p.hp - b.damage);
           if (p.hp === 0) {
             if (typeof scores[b.owner] === 'number') scores[b.owner]++;

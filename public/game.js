@@ -22,8 +22,8 @@ let lastShot = 0;
 
 const MAP_WIDTH = 2000;
 const MAP_HEIGHT = 1500;
-const CANVAS_WIDTH = 600;
-const CANVAS_HEIGHT = 400;
+const CANVAS_WIDTH = 160;
+const CANVAS_HEIGHT = 160;
 
 // Preload gunshot sound
 const gunshotAudio = new Audio('gunshot.wav');
