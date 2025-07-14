@@ -10,6 +10,21 @@ app.use(express.static('public'));
 
 let players = [];
 let bullets = [];
+let scores = [0, 0];
+let walls = [];
+
+function generateWalls() {
+  walls = [];
+  for (let i = 0; i < 5; i++) {
+    // Random wall, not too close to edges
+    const x = 50 + Math.random() * 500;
+    const y = 50 + Math.random() * 300;
+    const w = 40 + Math.random() * 60;
+    const h = 40 + Math.random() * 60;
+    walls.push({ x, y, w, h });
+  }
+}
+generateWalls();
 
 wss.on('connection', (ws) => {
   if (players.length >= 2) {
@@ -34,8 +49,23 @@ wss.on('connection', (ws) => {
   ws.on('message', (msg) => {
     const data = JSON.parse(msg);
     if (data.type === 'move') {
-      player.x += data.dx;
-      player.y += data.dy;
+      const newX = player.x + data.dx;
+      const newY = player.y + data.dy;
+      // Check collision with walls
+      let collides = false;
+      for (const wall of walls) {
+        if (
+          newX + 20 > wall.x && newX < wall.x + wall.w &&
+          newY + 20 > wall.y && newY < wall.y + wall.h
+        ) {
+          collides = true;
+          break;
+        }
+      }
+      if (!collides && newX >= 0 && newX <= 580 && newY >= 0 && newY <= 380) {
+        player.x = newX;
+        player.y = newY;
+      }
     } else if (data.type === 'shoot') {
       // Add a bullet in the direction specified
       if (typeof data.dx === 'number' && typeof data.dy === 'number') {
@@ -69,10 +99,30 @@ setInterval(() => {
       bullets.splice(i, 1);
       continue;
     }
+    // Check collision with walls
+    let hitWall = false;
+    for (const wall of walls) {
+      if (b.x > wall.x && b.x < wall.x + wall.w && b.y > wall.y && b.y < wall.y + wall.h) {
+        hitWall = true;
+        break;
+      }
+    }
+    if (hitWall) {
+      bullets.splice(i, 1);
+      continue;
+    }
     // Check collision with players
     for (const p of players) {
       if (p.id !== b.owner && Math.abs(p.x + 10 - b.x) < 15 && Math.abs(p.y + 10 - b.y) < 15) {
         p.hp = Math.max(0, p.hp - 1);
+        if (p.hp === 0) {
+          // Increment killer's score
+          if (typeof scores[b.owner] === 'number') scores[b.owner]++;
+          // Respawn player
+          p.x = Math.random() * 400;
+          p.y = Math.random() * 400;
+          p.hp = 3;
+        }
         bullets.splice(i, 1);
         break;
       }
@@ -80,7 +130,7 @@ setInterval(() => {
   }
   const state = players.map(p => ({ id: p.id, x: p.x, y: p.y, hp: p.hp }));
   players.forEach(p => {
-    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets }));
+    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets, scores, walls }));
   });
 }, 1000 / 30); // 30 FPS
 
