@@ -19,12 +19,15 @@ const weaponTypes = [
   { type: 'sniper', cooldown: 3000 }
 ];
 
+const MAP_WIDTH = 2000;
+const MAP_HEIGHT = 1500;
+
 function generateWalls() {
   walls = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 30; i++) {
     // Random wall, not too close to edges
-    const x = 50 + Math.random() * 500;
-    const y = 50 + Math.random() * 300;
+    const x = 50 + Math.random() * (MAP_WIDTH - 150);
+    const y = 50 + Math.random() * (MAP_HEIGHT - 150);
     const w = 40 + Math.random() * 60;
     const h = 40 + Math.random() * 60;
     walls.push({ x, y, w, h });
@@ -38,8 +41,8 @@ function spawnWeapon() {
   // Place somewhere not inside a wall
   let x, y, tries = 0;
   do {
-    x = 50 + Math.random() * 500;
-    y = 50 + Math.random() * 300;
+    x = 50 + Math.random() * (MAP_WIDTH - 100);
+    y = 50 + Math.random() * (MAP_HEIGHT - 100);
     tries++;
   } while (tries < 10 && walls.some(w => x > w.x - 20 && x < w.x + w.w + 20 && y > w.y - 20 && y < w.y + w.h + 20));
   weaponsOnMap.push({ type: weapon.type, x, y });
@@ -61,8 +64,8 @@ wss.on('connection', (ws) => {
   const id = players.length;
   const player = {
     id,
-    x: Math.random() * 400,
-    y: Math.random() * 400,
+    x: Math.random() * (MAP_WIDTH - 200),
+    y: Math.random() * (MAP_HEIGHT - 200),
     hp: 3,
     ws,
     weapon: 'basic',
@@ -88,22 +91,23 @@ wss.on('connection', (ws) => {
           break;
         }
       }
-      if (!collides && newX >= 0 && newX <= 580 && newY >= 0 && newY <= 380) {
+      if (!collides && newX >= 0 && newX <= MAP_WIDTH - 20 && newY >= 0 && newY <= MAP_HEIGHT - 20) {
         player.x = newX;
         player.y = newY;
       }
     } else if (data.type === 'shoot') {
       const now = Date.now();
       let cooldown = 300;
-      if (player.weapon === 'shotgun') cooldown = 600;
-      if (player.weapon === 'sniper') cooldown = 3000;
+      if (player.weapon === 'shotgun') cooldown = 500;
+      if (player.weapon === 'sniper') cooldown = 1500;
+      if (player.weapon === 'basic') cooldown = 250;
       if (now - lastShot[player.id] < cooldown) return;
       lastShot[player.id] = now;
       if (typeof data.dx === 'number' && typeof data.dy === 'number') {
         const mag = Math.sqrt(data.dx * data.dx + data.dy * data.dy);
         if (mag > 0) {
           if (player.weapon === 'shotgun') {
-            // Fire 3 bullets in a spread
+            // Fire 3 bullets in a spread, short range
             for (let i = -1; i <= 1; i++) {
               const angle = Math.atan2(data.dy, data.dx) + i * 0.2;
               bullets.push({
@@ -112,28 +116,34 @@ wss.on('connection', (ws) => {
                 dx: Math.cos(angle) * 10,
                 dy: Math.sin(angle) * 10,
                 owner: player.id,
-                damage: 1
+                damage: 1,
+                maxDistance: 200,
+                traveled: 0
               });
             }
           } else if (player.weapon === 'sniper') {
-            // Sniper: 1 bullet, 3 damage, 3s cooldown
+            // Sniper: 1 bullet, 3 damage, unlimited range
             bullets.push({
               x: player.x + 10,
               y: player.y + 10,
               dx: (data.dx / mag) * 14,
               dy: (data.dy / mag) * 14,
               owner: player.id,
-              damage: 3
+              damage: 3,
+              maxDistance: Infinity,
+              traveled: 0
             });
           } else {
-            // Basic gun
+            // Rifle: 1 bullet, 1 damage (3 if very close), medium range
             bullets.push({
               x: player.x + 10,
               y: player.y + 10,
               dx: (data.dx / mag) * 10,
               dy: (data.dy / mag) * 10,
               owner: player.id,
-              damage: 1
+              damage: 1,
+              maxDistance: 700,
+              traveled: 0
             });
           }
         }
@@ -152,8 +162,9 @@ setInterval(() => {
     const b = bullets[i];
     b.x += b.dx;
     b.y += b.dy;
-    // Remove if out of bounds
-    if (b.x < 0 || b.x > 600 || b.y < 0 || b.y > 400) {
+    b.traveled += Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+    // Remove if out of bounds or over range
+    if (b.x < 0 || b.x > MAP_WIDTH || b.y < 0 || b.y > MAP_HEIGHT || b.traveled > b.maxDistance) {
       bullets.splice(i, 1);
       continue;
     }
@@ -172,13 +183,19 @@ setInterval(() => {
     // Check collision with players
     for (const p of players) {
       if (p.id !== b.owner && Math.abs(p.x + 10 - b.x) < 15 && Math.abs(p.y + 10 - b.y) < 15) {
-        p.hp = Math.max(0, p.hp - b.damage);
+        // Rifle close-range bonus
+        let dmg = b.damage;
+        if (b.damage === 1 && b.maxDistance === 700) {
+          const dist = Math.sqrt(Math.pow(p.x + 10 - (b.x - b.dx), 2) + Math.pow(p.y + 10 - (b.y - b.dy), 2));
+          if (dist < 40) dmg = 3;
+        }
+        p.hp = Math.max(0, p.hp - dmg);
         if (p.hp === 0) {
           // Increment killer's score
           if (typeof scores[b.owner] === 'number') scores[b.owner]++;
           // Respawn player
-          p.x = Math.random() * 400;
-          p.y = Math.random() * 400;
+          p.x = Math.random() * (MAP_WIDTH - 200);
+          p.y = Math.random() * (MAP_HEIGHT - 200);
           p.hp = 3;
         }
         bullets.splice(i, 1);
