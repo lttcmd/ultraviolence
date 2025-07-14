@@ -10,6 +10,7 @@ let lastDir = { dx: 0, dy: -1 };
 let scores = [0, 0];
 let walls = [];
 let velocities = {};
+let weaponsOnMap = [];
 
 const keys = {};
 
@@ -37,6 +38,7 @@ socket.addEventListener('message', (e) => {
     bullets = data.bullets || [];
     scores = data.scores || [0, 0];
     walls = data.walls || [];
+    weaponsOnMap = data.weaponsOnMap || [];
   }
 });
 
@@ -62,6 +64,20 @@ function draw() {
   for (const w of walls) {
     ctx.fillRect(w.x, w.y, w.w, w.h);
   }
+  // Draw weapon pickups
+  for (const w of weaponsOnMap) {
+    if (w.type === 'shotgun') {
+      ctx.fillStyle = 'orange';
+      ctx.fillRect(w.x - 8, w.y - 8, 16, 16);
+      ctx.fillStyle = 'black';
+      ctx.fillText('S', w.x - 5, w.y + 5);
+    } else if (w.type === 'sniper') {
+      ctx.fillStyle = 'blue';
+      ctx.fillRect(w.x - 8, w.y - 8, 16, 16);
+      ctx.fillStyle = 'white';
+      ctx.fillText('N', w.x - 5, w.y + 5);
+    }
+  }
   // Draw scores
   ctx.fillStyle = 'white';
   ctx.font = '20px Arial';
@@ -80,6 +96,10 @@ function draw() {
     ctx.fillRect(p.x, p.y - 10, 20, 5);
     ctx.fillStyle = 'green';
     ctx.fillRect(p.x, p.y - 10, 20 * (p.hp / 3), 5);
+    // Draw weapon name
+    ctx.fillStyle = 'white';
+    ctx.font = '12px Arial';
+    ctx.fillText(p.weapon || 'basic', p.x, p.y - 15);
   }
   // Draw bullets
   ctx.fillStyle = 'yellow';
@@ -87,6 +107,17 @@ function draw() {
     ctx.beginPath();
     ctx.arc(b.x, b.y, 5, 0, 2 * Math.PI);
     ctx.fill();
+  }
+  // Show weapon info for player
+  const me = players.find(p => p.id === playerId);
+  if (me) {
+    let info = '';
+    if (me.weapon === 'shotgun') info = 'Shotgun: 3 bullets, 1 dmg, 0.6s cooldown';
+    else if (me.weapon === 'sniper') info = 'Sniper: 1 bullet, 3 dmg, 3s cooldown';
+    else info = 'Basic: 1 bullet, 1 dmg, 0.3s cooldown';
+    ctx.fillStyle = 'white';
+    ctx.font = '16px Arial';
+    ctx.fillText(info, 20, canvas.height - 20);
   }
 }
 

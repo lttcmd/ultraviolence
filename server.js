@@ -13,6 +13,11 @@ let bullets = [];
 let scores = [0, 0];
 let walls = [];
 let lastShot = [0, 0];
+let weaponsOnMap = [];
+const weaponTypes = [
+  { type: 'shotgun', cooldown: 600 },
+  { type: 'sniper', cooldown: 3000 }
+];
 
 function generateWalls() {
   walls = [];
@@ -26,6 +31,25 @@ function generateWalls() {
   }
 }
 generateWalls();
+
+function spawnWeapon() {
+  // Randomly pick a weapon type
+  const weapon = weaponTypes[Math.floor(Math.random() * weaponTypes.length)];
+  // Place somewhere not inside a wall
+  let x, y, tries = 0;
+  do {
+    x = 50 + Math.random() * 500;
+    y = 50 + Math.random() * 300;
+    tries++;
+  } while (tries < 10 && walls.some(w => x > w.x - 20 && x < w.x + w.w + 20 && y > w.y - 20 && y < w.y + w.h + 20));
+  weaponsOnMap.push({ type: weapon.type, x, y });
+}
+function resetWeapons() {
+  weaponsOnMap = [];
+  spawnWeapon();
+  spawnWeapon();
+}
+resetWeapons();
 
 wss.on('connection', (ws) => {
   if (players.length >= 2) {
@@ -41,6 +65,7 @@ wss.on('connection', (ws) => {
     y: Math.random() * 400,
     hp: 3,
     ws,
+    weapon: 'basic',
   };
 
   players.push(player);
@@ -69,19 +94,48 @@ wss.on('connection', (ws) => {
       }
     } else if (data.type === 'shoot') {
       const now = Date.now();
-      if (now - lastShot[player.id] < 300) return; // 300ms cooldown
+      let cooldown = 300;
+      if (player.weapon === 'shotgun') cooldown = 600;
+      if (player.weapon === 'sniper') cooldown = 3000;
+      if (now - lastShot[player.id] < cooldown) return;
       lastShot[player.id] = now;
-      // Add a bullet in the direction specified
       if (typeof data.dx === 'number' && typeof data.dy === 'number') {
         const mag = Math.sqrt(data.dx * data.dx + data.dy * data.dy);
         if (mag > 0) {
-          bullets.push({
-            x: player.x + 10, // center of player
-            y: player.y + 10,
-            dx: (data.dx / mag) * 10, // increased speed
-            dy: (data.dy / mag) * 10, // increased speed
-            owner: player.id,
-          });
+          if (player.weapon === 'shotgun') {
+            // Fire 3 bullets in a spread
+            for (let i = -1; i <= 1; i++) {
+              const angle = Math.atan2(data.dy, data.dx) + i * 0.2;
+              bullets.push({
+                x: player.x + 10,
+                y: player.y + 10,
+                dx: Math.cos(angle) * 10,
+                dy: Math.sin(angle) * 10,
+                owner: player.id,
+                damage: 1
+              });
+            }
+          } else if (player.weapon === 'sniper') {
+            // Sniper: 1 bullet, 3 damage, 3s cooldown
+            bullets.push({
+              x: player.x + 10,
+              y: player.y + 10,
+              dx: (data.dx / mag) * 14,
+              dy: (data.dy / mag) * 14,
+              owner: player.id,
+              damage: 3
+            });
+          } else {
+            // Basic gun
+            bullets.push({
+              x: player.x + 10,
+              y: player.y + 10,
+              dx: (data.dx / mag) * 10,
+              dy: (data.dy / mag) * 10,
+              owner: player.id,
+              damage: 1
+            });
+          }
         }
       }
     }
@@ -118,7 +172,7 @@ setInterval(() => {
     // Check collision with players
     for (const p of players) {
       if (p.id !== b.owner && Math.abs(p.x + 10 - b.x) < 15 && Math.abs(p.y + 10 - b.y) < 15) {
-        p.hp = Math.max(0, p.hp - 1);
+        p.hp = Math.max(0, p.hp - b.damage);
         if (p.hp === 0) {
           // Increment killer's score
           if (typeof scores[b.owner] === 'number') scores[b.owner]++;
@@ -132,9 +186,20 @@ setInterval(() => {
       }
     }
   }
+  // Weapon pickup
+  for (const player of players) {
+    for (let i = weaponsOnMap.length - 1; i >= 0; i--) {
+      const w = weaponsOnMap[i];
+      if (player.x + 10 > w.x - 15 && player.x + 10 < w.x + 15 && player.y + 10 > w.y - 15 && player.y + 10 < w.y + 15) {
+        player.weapon = w.type;
+        weaponsOnMap.splice(i, 1);
+        setTimeout(spawnWeapon, 2000); // respawn after 2s
+      }
+    }
+  }
   const state = players.map(p => ({ id: p.id, x: p.x, y: p.y, hp: p.hp }));
   players.forEach(p => {
-    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets, scores, walls }));
+    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets, scores, walls, weaponsOnMap }));
   });
 }, 1000 / 30); // 30 FPS
 
