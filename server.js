@@ -3,10 +3,16 @@ const http = require('http');
 const WebSocket = require('ws');
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Health check route so DO knows app is alive
+app.get('/', (req, res) => {
+  res.send('Server is running');
+});
 
 app.use(express.static('public'));
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 let players = [];
 
@@ -43,11 +49,13 @@ wss.on('connection', (ws) => {
   });
 });
 
+// Broadcast game state 30 times per second
 setInterval(() => {
   const state = players.map(p => ({ id: p.id, x: p.x, y: p.y, hp: p.hp }));
   players.forEach(p => {
     p.ws.send(JSON.stringify({ type: 'state', players: state }));
   });
-}, 1000 / 30); // 30 FPS
+}, 1000 / 30);
 
-server.listen(8080, () => console.log('Server running on port 8080'));
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
