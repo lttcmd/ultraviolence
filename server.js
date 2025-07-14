@@ -4,11 +4,12 @@ const WebSocket = require('ws');
 
 const app = express();
 
-// Health check route so DO knows app is alive
+// Health check route for DigitalOcean
 app.get('/', (req, res) => {
   res.send('Server is running');
 });
 
+// Serve static files from 'public'
 app.use(express.static('public'));
 
 const server = http.createServer(app);
@@ -49,7 +50,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Broadcast game state 30 times per second
+// Broadcast game state at 30 FPS
 setInterval(() => {
   const state = players.map(p => ({ id: p.id, x: p.x, y: p.y, hp: p.hp }));
   players.forEach(p => {
@@ -59,4 +60,3 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
