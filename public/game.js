@@ -13,6 +13,7 @@ let velocities = {};
 let weaponsOnMap = [];
 
 const keys = {};
+let keyHistory = [];
 
 let shootCooldown = 300; // ms for basic gun
 let lastShot = 0;
@@ -23,6 +24,7 @@ const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 400;
 
 document.addEventListener('keydown', (e) => {
+  if (!keys[e.key]) keyHistory.push(e.key);
   keys[e.key] = true;
   if (e.key === ' ') {
     const now = Date.now();
@@ -32,7 +34,10 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-document.addEventListener('keyup', (e) => keys[e.key] = false);
+document.addEventListener('keyup', (e) => {
+  keys[e.key] = false;
+  keyHistory = keyHistory.filter(k => k !== e.key);
+});
 
 socket.addEventListener('message', (e) => {
   const data = JSON.parse(e.data);
@@ -48,11 +53,18 @@ socket.addEventListener('message', (e) => {
 });
 
 function getMoveDirection() {
+  // Use last two keys in keyHistory that are still pressed
+  const dirs = { w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
   let dx = 0, dy = 0;
-  if (keys['w']) dy -= 1;
-  if (keys['s']) dy += 1;
-  if (keys['a']) dx -= 1;
-  if (keys['d']) dx += 1;
+  let used = 0;
+  for (let i = keyHistory.length - 1; i >= 0 && used < 2; i--) {
+    const k = keyHistory[i];
+    if (keys[k] && dirs[k]) {
+      dx += dirs[k][0];
+      dy += dirs[k][1];
+      used++;
+    }
+  }
   // Normalize for diagonal
   if (dx !== 0 && dy !== 0) {
     const mag = Math.sqrt(dx * dx + dy * dy);
@@ -98,20 +110,16 @@ function isInCone(px, py, player, camera) {
   return dist < coneLength && da < coneAngle / 2;
 }
 
-function raycast(px, py, angle, maxDist, walls, camera) {
+function raycast(px, py, angle, maxDist, walls) {
   let dx = Math.cos(angle);
   let dy = Math.sin(angle);
   let closest = { x: px + dx * maxDist, y: py + dy * maxDist, dist: maxDist };
   for (const w of walls) {
     // Check intersection with each wall edge
     const edges = [
-      // top
       [w.x, w.y, w.x + w.w, w.y],
-      // right
       [w.x + w.w, w.y, w.x + w.w, w.y + w.h],
-      // bottom
       [w.x + w.w, w.y + w.h, w.x, w.y + w.h],
-      // left
       [w.x, w.y + w.h, w.x, w.y]
     ];
     for (const [x1, y1, x2, y2] of edges) {
@@ -120,7 +128,6 @@ function raycast(px, py, angle, maxDist, walls, camera) {
       const t = ((x1 - px) * dy - (y1 - py) * dx) / denom;
       const u = -((x1 - x2) * (y1 - py) - (y1 - y2) * (x1 - px)) / denom;
       if (t >= 0 && t <= 1 && u >= 0 && u < closest.dist) {
-        // Intersection point
         const ix = x1 + t * (x2 - x1);
         const iy = y1 + t * (y2 - y1);
         const dist = Math.sqrt((ix - px) ** 2 + (iy - py) ** 2);
@@ -153,12 +160,12 @@ function drawGrid(ctx, camera) {
 }
 
 function drawTorchCone(ctx, player, camera) {
-  const px = player.x - camera.x + 10;
-  const py = player.y - camera.y + 10;
+  const px = player.x + 10;
+  const py = player.y + 10;
   const angle = Math.atan2(lastDir.dy, lastDir.dx);
   ctx.save();
   // Draw a radial gradient for darkness
-  let grad = ctx.createRadialGradient(px, py, 100, px, py, 420);
+  let grad = ctx.createRadialGradient(px - camera.x, py - camera.y, 100, px - camera.x, py - camera.y, 420);
   grad.addColorStop(0, 'rgba(0,0,0,0)');
   grad.addColorStop(0.7, 'rgba(0,0,0,0.5)');
   grad.addColorStop(1, 'rgba(0,0,0,0.95)');
@@ -168,25 +175,25 @@ function drawTorchCone(ctx, player, camera) {
   // Mask out the cone with yellowish hue, clipped by walls
   ctx.globalCompositeOperation = 'destination-out';
   ctx.beginPath();
-  ctx.moveTo(px, py);
+  ctx.moveTo(px - camera.x, py - camera.y);
   const coneLength = 400;
   const coneAngle = Math.PI / 2; // 90 degrees
   const rays = 80;
   for (let i = 0; i <= rays; i++) {
     const a = angle - coneAngle / 2 + (coneAngle * i) / rays;
-    const hit = raycast(px, py, a, coneLength, walls.map(w => ({...w})), camera);
-    ctx.lineTo(hit.x, hit.y);
+    const hit = raycast(px, py, a, coneLength, walls);
+    ctx.lineTo(hit.x - camera.x, hit.y - camera.y);
   }
   ctx.closePath();
   ctx.fill();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.18;
   ctx.beginPath();
-  ctx.moveTo(px, py);
+  ctx.moveTo(px - camera.x, py - camera.y);
   for (let i = 0; i <= rays; i++) {
     const a = angle - coneAngle / 2 + (coneAngle * i) / rays;
-    const hit = raycast(px, py, a, coneLength, walls.map(w => ({...w})), camera);
-    ctx.lineTo(hit.x, hit.y);
+    const hit = raycast(px, py, a, coneLength, walls);
+    ctx.lineTo(hit.x - camera.x, hit.y - camera.y);
   }
   ctx.closePath();
   ctx.fillStyle = 'yellow';
