@@ -12,6 +12,7 @@ let players = [];
 let bullets = [];
 let scores = [0, 0];
 let walls = [];
+let lastShot = [0, 0];
 
 function generateWalls() {
   walls = [];
@@ -67,6 +68,9 @@ wss.on('connection', (ws) => {
         player.y = newY;
       }
     } else if (data.type === 'shoot') {
+      const now = Date.now();
+      if (now - lastShot[player.id] < 300) return; // 300ms cooldown
+      lastShot[player.id] = now;
       // Add a bullet in the direction specified
       if (typeof data.dx === 'number' && typeof data.dy === 'number') {
         const mag = Math.sqrt(data.dx * data.dx + data.dy * data.dy);
@@ -74,8 +78,8 @@ wss.on('connection', (ws) => {
           bullets.push({
             x: player.x + 10, // center of player
             y: player.y + 10,
-            dx: (data.dx / mag) * 6,
-            dy: (data.dy / mag) * 6,
+            dx: (data.dx / mag) * 10, // increased speed
+            dy: (data.dy / mag) * 10, // increased speed
             owner: player.id,
           });
         }

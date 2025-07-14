@@ -9,14 +9,21 @@ let bullets = [];
 let lastDir = { dx: 0, dy: -1 };
 let scores = [0, 0];
 let walls = [];
+let velocities = {};
 
 const keys = {};
+
+let shootCooldown = 300; // ms for basic gun
+let lastShot = 0;
 
 document.addEventListener('keydown', (e) => {
   keys[e.key] = true;
   if (e.key === ' ') {
-    // Shoot in last direction
-    socket.send(JSON.stringify({ type: 'shoot', dx: lastDir.dx, dy: lastDir.dy }));
+    const now = Date.now();
+    if (now - lastShot >= shootCooldown) {
+      socket.send(JSON.stringify({ type: 'shoot', dx: lastDir.dx, dy: lastDir.dy }));
+      lastShot = now;
+    }
   }
 });
 document.addEventListener('keyup', (e) => keys[e.key] = false);
@@ -35,13 +42,16 @@ socket.addEventListener('message', (e) => {
 
 function sendMovement() {
   let dx = 0, dy = 0;
-  if (keys['w']) dy = -2;
-  if (keys['s']) dy = 2;
-  if (keys['a']) dx = -2;
-  if (keys['d']) dx = 2;
+  if (keys['w']) dy = -3;
+  if (keys['s']) dy = 3;
+  if (keys['a']) dx = -3;
+  if (keys['d']) dx = 3;
   if (dx !== 0 || dy !== 0) {
     lastDir = { dx, dy };
+    velocities[playerId] = { dx, dy };
     socket.send(JSON.stringify({ type: 'move', dx, dy }));
+  } else {
+    velocities[playerId] = { dx: 0, dy: 0 };
   }
 }
 
@@ -59,6 +69,10 @@ function draw() {
   ctx.fillText(`Opponent: ${scores[1 - playerId] || 0}`, 450, 30);
   // Draw players
   for (const p of players) {
+    // Smooth movement
+    if (!velocities[p.id]) velocities[p.id] = { dx: 0, dy: 0 };
+    p.x += velocities[p.id].dx * 0.2;
+    p.y += velocities[p.id].dy * 0.2;
     ctx.fillStyle = p.id === playerId ? 'lime' : 'red';
     ctx.fillRect(p.x, p.y, 20, 20);
     // Draw HP bar
