@@ -50,4 +50,4 @@ setInterval(() => {
   });
 }, 1000 / 30); // 30 FPS
 
-server.listen(3000, () => console.log('Server running on port 3000'));
+server.listen(8080, () => console.log('Server running on port 8080'));
