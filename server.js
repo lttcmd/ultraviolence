@@ -84,7 +84,7 @@ setInterval(() => {
   });
 }, 1000 / 30); // 30 FPS
 
-const PORT = process.env.PORT || 8080; // <-- This line is key
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-}););
+});
