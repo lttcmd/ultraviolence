@@ -11,6 +11,8 @@ let scores = [0, 0];
 let walls = [];
 let velocities = {};
 let weaponsOnMap = [];
+let playerDirs = {};
+let lastShotTimes = [0, 0];
 
 const keys = {};
 let keyHistory = [];
@@ -22,6 +24,10 @@ const MAP_WIDTH = 2000;
 const MAP_HEIGHT = 1500;
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 400;
+
+// Preload gunshot sound
+const gunshotAudio = new Audio('gunshot.wav');
+gunshotAudio.volume = 0.5;
 
 document.addEventListener('keydown', (e) => {
   if (!keys[e.key]) keyHistory.push(e.key);
@@ -44,35 +50,53 @@ socket.addEventListener('message', (e) => {
   if (data.type === 'init') {
     playerId = data.id;
   } else if (data.type === 'state') {
+    // Play gunshot sound if any player shot since last frame
+    if (window.lastShotTimesPrev) {
+      for (let i = 0; i < data.lastShotTimes?.length; i++) {
+        if (data.lastShotTimes[i] && (!window.lastShotTimesPrev[i] || data.lastShotTimes[i] > window.lastShotTimesPrev[i])) {
+          // Play a new instance so overlapping shots work
+          const s = gunshotAudio.cloneNode();
+          s.play();
+        }
+      }
+    }
+    window.lastShotTimesPrev = data.lastShotTimes?.slice();
     players = data.players;
     bullets = data.bullets || [];
     scores = data.scores || [0, 0];
     walls = data.walls || [];
     weaponsOnMap = data.weaponsOnMap || [];
+    // Store look direction for each player
+    if (data.playerDirs) playerDirs = data.playerDirs;
+    if (data.lastShotTimes) lastShotTimes = data.lastShotTimes;
   }
 });
 
 function getMoveDirection() {
-  // Use last two keys in keyHistory that are still pressed
+  // Use last two movement keys in keyHistory that are still pressed
   const dirs = { w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
   let dx = 0, dy = 0;
-  let used = 0;
-  for (let i = keyHistory.length - 1; i >= 0 && used < 2; i--) {
-    const k = keyHistory[i];
-    if (keys[k] && dirs[k]) {
-      dx += dirs[k][0];
-      dy += dirs[k][1];
-      used++;
-    }
+  // Only consider movement keys
+  const movementKeys = keyHistory.filter(k => dirs[k] && keys[k]);
+  if (movementKeys.length >= 2) {
+    // Use the last two movement keys for diagonal
+    const k1 = movementKeys[movementKeys.length - 1];
+    const k2 = movementKeys[movementKeys.length - 2];
+    dx = dirs[k1][0] + dirs[k2][0];
+    dy = dirs[k1][1] + dirs[k2][1];
+  } else if (movementKeys.length === 1) {
+    dx = dirs[movementKeys[0]][0];
+    dy = dirs[movementKeys[0]][1];
   }
   // Normalize for diagonal
+  const speed = 2;
   if (dx !== 0 && dy !== 0) {
     const mag = Math.sqrt(dx * dx + dy * dy);
-    dx = Math.round((dx / mag) * 3);
-    dy = Math.round((dy / mag) * 3);
+    dx = (dx / mag) * speed;
+    dy = (dy / mag) * speed;
   } else {
-    dx *= 3;
-    dy *= 3;
+    dx *= speed;
+    dy *= speed;
   }
   return { dx, dy };
 }
@@ -82,7 +106,8 @@ function sendMovement() {
   if (dx !== 0 || dy !== 0) {
     lastDir = { dx, dy };
     velocities[playerId] = { dx, dy };
-    socket.send(JSON.stringify({ type: 'move', dx, dy }));
+    playerDirs[playerId] = { dx, dy };
+    socket.send(JSON.stringify({ type: 'move', dx, dy, look: { dx, dy } }));
   } else {
     velocities[playerId] = { dx: 0, dy: 0 };
   }
@@ -159,46 +184,40 @@ function drawGrid(ctx, camera) {
   ctx.restore();
 }
 
-function drawTorchCone(ctx, player, camera) {
+function drawTorchCone(ctx, player, camera, dir, alpha = 0.18) {
   const px = player.x + 10;
   const py = player.y + 10;
-  const angle = Math.atan2(lastDir.dy, lastDir.dx);
+  let angle = (dir && (dir.dx !== 0 || dir.dy !== 0)) ? Math.atan2(dir.dy, dir.dx) : -Math.PI / 2;
   ctx.save();
-  // Draw a radial gradient for darkness
-  let grad = ctx.createRadialGradient(px - camera.x, py - camera.y, 100, px - camera.x, py - camera.y, 420);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(0.7, 'rgba(0,0,0,0.5)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.95)');
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = grad;
+  // 1. Draw a slightly darker fog over the whole screen
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  // Mask out the cone with yellowish hue, clipped by walls
-  ctx.globalCompositeOperation = 'destination-out';
+  // 2. Add a soft circular ambient light around the player
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'lighter';
+  let ambient = ctx.createRadialGradient(px - camera.x, py - camera.y, 0, px - camera.x, py - camera.y, 120);
+  ambient.addColorStop(0, 'rgba(255,255,200,0.18)');
+  ambient.addColorStop(1, 'rgba(255,255,200,0)');
+  ctx.fillStyle = ambient;
+  ctx.beginPath();
+  ctx.arc(px - camera.x, py - camera.y, 120, 0, 2 * Math.PI);
+  ctx.fill();
+  // 3. Draw the flashlight cone with a strong gradient
+  ctx.globalAlpha = 1;
   ctx.beginPath();
   ctx.moveTo(px - camera.x, py - camera.y);
   const coneLength = 400;
   const coneAngle = Math.PI / 2; // 90 degrees
-  const rays = 80;
-  for (let i = 0; i <= rays; i++) {
-    const a = angle - coneAngle / 2 + (coneAngle * i) / rays;
-    const hit = raycast(px, py, a, coneLength, walls);
-    ctx.lineTo(hit.x - camera.x, hit.y - camera.y);
-  }
+  ctx.arc(px - camera.x, py - camera.y, coneLength, angle - coneAngle / 2, angle + coneAngle / 2);
+  ctx.lineTo(px - camera.x, py - camera.y);
   ctx.closePath();
+  let coneGrad = ctx.createRadialGradient(px - camera.x, py - camera.y, 60, px - camera.x, py - camera.y, coneLength);
+  coneGrad.addColorStop(0, 'rgba(255,255,180,0.45)');
+  coneGrad.addColorStop(0.5, 'rgba(255,255,180,0.25)');
+  coneGrad.addColorStop(1, 'rgba(255,255,180,0)');
+  ctx.fillStyle = coneGrad;
   ctx.fill();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = 0.18;
-  ctx.beginPath();
-  ctx.moveTo(px - camera.x, py - camera.y);
-  for (let i = 0; i <= rays; i++) {
-    const a = angle - coneAngle / 2 + (coneAngle * i) / rays;
-    const hit = raycast(px, py, a, coneLength, walls);
-    ctx.lineTo(hit.x - camera.x, hit.y - camera.y);
-  }
-  ctx.closePath();
-  ctx.fillStyle = 'yellow';
-  ctx.fill();
-  ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
 }
@@ -216,7 +235,14 @@ function draw() {
   }
   // --- FOG/FLASHLIGHT OVERLAY ---
   if (me) {
-    drawTorchCone(ctx, me, camera);
+    // Draw opponent's cone first (fainter)
+    for (const p of players) {
+      if (p.id !== playerId) {
+        drawTorchCone(ctx, p, camera, playerDirs[p.id] || { dx: 0, dy: -1 }, 0.08);
+      }
+    }
+    // Draw my cone (brighter)
+    drawTorchCone(ctx, me, camera, lastDir, 0.18);
   }
   // Draw weapon pickups (only if in cone)
   for (const w of weaponsOnMap) {
@@ -234,13 +260,16 @@ function draw() {
       }
     }
   }
-  // Draw players (only if in cone)
+  // Draw players (show if in your cone, or you are in their cone, or they shot in last 5s)
   for (const p of players) {
-    // Smooth movement
     if (!velocities[p.id]) velocities[p.id] = { dx: 0, dy: 0 };
     p.x += velocities[p.id].dx * 0.2;
     p.y += velocities[p.id].dy * 0.2;
-    if (p.id === playerId || (me && isInCone(p.x + 10 - camera.x, p.y + 10 - camera.y, me, camera))) {
+    const now = Date.now();
+    const inMyCone = p.id === playerId || (me && isInCone(p.x + 10 - camera.x, p.y + 10 - camera.y, me, camera));
+    const iSeeTheirCone = (p.id !== playerId && me && isInCone(me.x + 10 - camera.x, me.y + 10 - camera.y, p, camera));
+    const theyShot = lastShotTimes[p.id] && (now - lastShotTimes[p.id] < 5000);
+    if (inMyCone || iSeeTheirCone || theyShot) {
       ctx.fillStyle = p.id === playerId ? 'lime' : 'red';
       ctx.fillRect(p.x - camera.x, p.y - camera.y, 20, 20);
       // Draw HP bar
@@ -254,10 +283,17 @@ function draw() {
       ctx.fillText(p.weapon || 'basic', p.x - camera.x, p.y - 15 - camera.y);
     }
   }
-  // Draw bullets (only if in cone)
-  ctx.fillStyle = 'yellow';
+  // Draw bullets (always visible)
   for (const b of bullets) {
-    if (!me || isInCone(b.x - camera.x, b.y - camera.y, me, camera)) {
+    if (b.type === 'sniper') {
+      ctx.save();
+      ctx.translate(b.x - camera.x, b.y - camera.y);
+      ctx.rotate(Math.atan2(b.dy, b.dx));
+      ctx.fillStyle = 'blue';
+      ctx.fillRect(-10, -4, 20, 8);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = 'yellow';
       ctx.beginPath();
       ctx.arc(b.x - camera.x, b.y - camera.y, 5, 0, 2 * Math.PI);
       ctx.fill();
@@ -268,15 +304,7 @@ function draw() {
   ctx.font = '20px Arial';
   ctx.fillText(`You: ${scores[playerId] || 0}`, 20, 30);
   ctx.fillText(`Opponent: ${scores[1 - playerId] || 0}`, 450, 30);
-  if (me) {
-    let info = '';
-    if (me.weapon === 'shotgun') info = 'Shotgun: 3 bullets, 1 dmg, 0.5s cooldown';
-    else if (me.weapon === 'sniper') info = 'Sniper: 1 bullet, 3 dmg, 1.5s cooldown';
-    else info = 'Rifle: 1 bullet, 1 dmg (3 close), 0.25s cooldown';
-    ctx.fillStyle = 'white';
-    ctx.font = '16px Arial';
-    ctx.fillText(info, 20, canvas.height - 20);
-  }
+  // Removed weapon info text from bottom of screen
 }
 
 function gameLoop() {
@@ -284,6 +312,23 @@ function gameLoop() {
   draw();
   requestAnimationFrame(gameLoop);
 }
+
+// Autoplay and loop background music
+document.addEventListener('DOMContentLoaded', () => {
+  const audio = new Audio('gamemusic.mp3');
+  audio.loop = true;
+  audio.volume = 0.5;
+  audio.play().catch(() => {
+    // If autoplay is blocked, try again on user interaction
+    const resume = () => {
+      audio.play();
+      document.removeEventListener('keydown', resume);
+      document.removeEventListener('mousedown', resume);
+    };
+    document.addEventListener('keydown', resume);
+    document.addEventListener('mousedown', resume);
+  });
+});
 
 gameLoop();
 
