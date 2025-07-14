@@ -160,13 +160,16 @@ function draw() {
   const camera = me ? getCamera(me) : { x: 0, y: 0 };
   // Draw grid texture
   drawGrid(ctx, camera);
-  // Draw walls
+  // Draw walls (always visible)
   ctx.fillStyle = 'gray';
   for (const w of walls) {
-    if (!me || isInCone(w.x + w.w / 2 - camera.x, w.y + w.h / 2 - camera.y, me, camera))
-      ctx.fillRect(w.x - camera.x, w.y - camera.y, w.w, w.h);
+    ctx.fillRect(w.x - camera.x, w.y - camera.y, w.w, w.h);
   }
-  // Draw weapon pickups
+  // --- FOG/FLASHLIGHT OVERLAY ---
+  if (me) {
+    drawTorchCone(ctx, me, camera);
+  }
+  // Draw weapon pickups (only if in cone)
   for (const w of weaponsOnMap) {
     if (!me || isInCone(w.x - camera.x, w.y - camera.y, me, camera)) {
       if (w.type === 'shotgun') {
@@ -182,18 +185,12 @@ function draw() {
       }
     }
   }
-  // Draw scores
-  ctx.fillStyle = 'white';
-  ctx.font = '20px Arial';
-  ctx.fillText(`You: ${scores[playerId] || 0}`, 20, 30);
-  ctx.fillText(`Opponent: ${scores[1 - playerId] || 0}`, 450, 30);
-  // Draw players
+  // Draw players (only if in cone)
   for (const p of players) {
     // Smooth movement
     if (!velocities[p.id]) velocities[p.id] = { dx: 0, dy: 0 };
     p.x += velocities[p.id].dx * 0.2;
     p.y += velocities[p.id].dy * 0.2;
-    // Only draw self or opponent if in cone
     if (p.id === playerId || (me && isInCone(p.x + 10 - camera.x, p.y + 10 - camera.y, me, camera))) {
       ctx.fillStyle = p.id === playerId ? 'lime' : 'red';
       ctx.fillRect(p.x - camera.x, p.y - camera.y, 20, 20);
@@ -208,7 +205,7 @@ function draw() {
       ctx.fillText(p.weapon || 'basic', p.x - camera.x, p.y - 15 - camera.y);
     }
   }
-  // Draw bullets
+  // Draw bullets (only if in cone)
   ctx.fillStyle = 'yellow';
   for (const b of bullets) {
     if (!me || isInCone(b.x - camera.x, b.y - camera.y, me, camera)) {
@@ -217,7 +214,11 @@ function draw() {
       ctx.fill();
     }
   }
-  // Show weapon info for player
+  // Draw scores and weapon info
+  ctx.fillStyle = 'white';
+  ctx.font = '20px Arial';
+  ctx.fillText(`You: ${scores[playerId] || 0}`, 20, 30);
+  ctx.fillText(`Opponent: ${scores[1 - playerId] || 0}`, 450, 30);
   if (me) {
     let info = '';
     if (me.weapon === 'shotgun') info = 'Shotgun: 3 bullets, 1 dmg, 0.5s cooldown';
@@ -226,8 +227,6 @@ function draw() {
     ctx.fillStyle = 'white';
     ctx.font = '16px Arial';
     ctx.fillText(info, 20, canvas.height - 20);
-    // Draw torch/vision cone
-    drawTorchCone(ctx, me, camera);
   }
 }
 
