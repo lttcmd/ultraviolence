@@ -1,10 +1,8 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
-app.use(express.static('public'));
-
 const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-const socket = new WebSocket(`${protocol}://${location.hostname}:8080`);
+const socket = new WebSocket(`${protocol}://${location.host}`);
 
 let playerId = null;
 let players = [];
