@@ -47,12 +47,26 @@ socket.addEventListener('message', (e) => {
   }
 });
 
-function sendMovement() {
+function getMoveDirection() {
   let dx = 0, dy = 0;
-  if (keys['w']) dy = -3;
-  if (keys['s']) dy = 3;
-  if (keys['a']) dx = -3;
-  if (keys['d']) dx = 3;
+  if (keys['w']) dy -= 1;
+  if (keys['s']) dy += 1;
+  if (keys['a']) dx -= 1;
+  if (keys['d']) dx += 1;
+  // Normalize for diagonal
+  if (dx !== 0 && dy !== 0) {
+    const mag = Math.sqrt(dx * dx + dy * dy);
+    dx = Math.round((dx / mag) * 3);
+    dy = Math.round((dy / mag) * 3);
+  } else {
+    dx *= 3;
+    dy *= 3;
+  }
+  return { dx, dy };
+}
+
+function sendMovement() {
+  const { dx, dy } = getMoveDirection();
   if (dx !== 0 || dy !== 0) {
     lastDir = { dx, dy };
     velocities[playerId] = { dx, dy };
@@ -84,6 +98,25 @@ function isInCone(px, py, player, camera) {
   return dist < coneLength && da < coneAngle / 2;
 }
 
+function drawGrid(ctx, camera) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < MAP_WIDTH; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x - camera.x, 0);
+    ctx.lineTo(x - camera.x, CANVAS_HEIGHT);
+    ctx.stroke();
+  }
+  for (let y = 0; y < MAP_HEIGHT; y += 40) {
+    ctx.beginPath();
+    ctx.moveTo(0, y - camera.y);
+    ctx.lineTo(CANVAS_WIDTH, y - camera.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawTorchCone(ctx, player, camera) {
   const px = player.x - camera.x + 10;
   const py = player.y - camera.y + 10;
@@ -97,16 +130,26 @@ function drawTorchCone(ctx, player, camera) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  // Mask out the cone
+  // Mask out the cone with yellowish hue
   ctx.globalCompositeOperation = 'destination-out';
   ctx.beginPath();
   ctx.moveTo(px, py);
   const coneLength = 400;
-  const coneAngle = Math.PI * 0.6;
+  const coneAngle = Math.PI * 5 / 6; // 150 degrees
   ctx.arc(px, py, coneLength, angle - coneAngle / 2, angle + coneAngle / 2);
   ctx.lineTo(px, py);
   ctx.closePath();
   ctx.fill();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.18;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.arc(px, py, coneLength, angle - coneAngle / 2, angle + coneAngle / 2);
+  ctx.lineTo(px, py);
+  ctx.closePath();
+  ctx.fillStyle = 'yellow';
+  ctx.fill();
+  ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
 }
@@ -115,10 +158,11 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const me = players.find(p => p.id === playerId);
   const camera = me ? getCamera(me) : { x: 0, y: 0 };
+  // Draw grid texture
+  drawGrid(ctx, camera);
   // Draw walls
   ctx.fillStyle = 'gray';
   for (const w of walls) {
-    // Only draw if center of wall is in cone
     if (!me || isInCone(w.x + w.w / 2 - camera.x, w.y + w.h / 2 - camera.y, me, camera))
       ctx.fillRect(w.x - camera.x, w.y - camera.y, w.w, w.h);
   }
@@ -194,3 +238,4 @@ function gameLoop() {
 }
 
 gameLoop();
+
