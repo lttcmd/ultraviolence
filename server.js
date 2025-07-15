@@ -21,6 +21,14 @@ const weaponTypes = [
   { type: 'sniper', cooldown: 3000 }
 ];
 
+let powerupTypes = [
+  { type: 'torch', label: 'TORCH' },
+  { type: 'speed', label: 'SPEED' },
+  { type: 'nightvision', label: 'NIGHTVISION' }
+];
+let powerupsOnMap = [];
+let activePowerups = [{}, {}]; // { type, expires } per player
+
 const GRID_SIZE = 40;
 const MAP_WIDTH = 2000;
 const MAP_HEIGHT = 1500;
@@ -70,8 +78,27 @@ function resetWeapons() {
   weaponsOnMap = [];
   spawnWeapon();
   spawnWeapon();
+  spawnWeapon(); // +25% more common
 }
 resetWeapons();
+
+function spawnPowerup() {
+  const powerup = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+  let x, y, tries = 0;
+  do {
+    x = 50 + Math.random() * (MAP_WIDTH - 100);
+    y = 50 + Math.random() * (MAP_HEIGHT - 100);
+    tries++;
+  } while (tries < 10 && (walls.some(w => x > w.x - 20 && x < w.x + w.w + 20 && y > w.y - 20 && y < w.y + w.h + 20) || weaponsOnMap.some(w => Math.abs(w.x - x) < 40 && Math.abs(w.y - y) < 40)));
+  powerupsOnMap.push({ type: powerup.type, label: powerup.label, x, y });
+}
+function resetPowerups() {
+  powerupsOnMap = [];
+  spawnPowerup();
+  spawnPowerup();
+  spawnPowerup(); // +25% more common
+}
+resetPowerups();
 
 wss.on('connection', (ws) => {
   if (players.length >= 2) {
@@ -278,13 +305,31 @@ setInterval(() => {
       if (player.x + 10 > w.x - 15 && player.x + 10 < w.x + 15 && player.y + 10 > w.y - 15 && player.y + 10 < w.y + 15) {
         player.weapon = w.type;
         weaponsOnMap.splice(i, 1);
+        player.weaponExpires = Date.now() + 30000; // 30s weapon duration
         setTimeout(spawnWeapon, 2000); // respawn after 2s
       }
     }
   }
+  // Powerup pickup
+  for (const player of players) {
+    for (let i = powerupsOnMap.length - 1; i >= 0; i--) {
+      const p = powerupsOnMap[i];
+      if (player.x + 10 > p.x - 15 && player.x + 10 < p.x + 15 && player.y + 10 > p.y - 15 && player.y + 10 < p.y + 15) {
+        activePowerups[player.id] = { type: p.type, label: p.label, expires: Date.now() + 15000 }; // 15s powerup duration
+        powerupsOnMap.splice(i, 1);
+        setTimeout(spawnPowerup, 2000);
+      }
+    }
+  }
+  // Remove expired powerups
+  for (let i = 0; i < activePowerups.length; i++) {
+    if (activePowerups[i].expires && activePowerups[i].expires < Date.now()) {
+      activePowerups[i] = {};
+    }
+  }
   const state = players.map(p => ({ id: p.id, x: p.x, y: p.y, hp: p.hp }));
   players.forEach(p => {
-    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets, scores, walls, weaponsOnMap, playerDirs, lastShotTimes }));
+    p.ws.send(JSON.stringify({ type: 'state', players: state, bullets, scores, walls, weaponsOnMap, playerDirs, lastShotTimes, powerupsOnMap, activePowerups }));
   });
 }, 1000 / 30); // 30 FPS
 
