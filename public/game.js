@@ -41,7 +41,9 @@ gunshotAudio.volume = 0.5;
 document.addEventListener('keydown', (e) => {
   if (!keys[e.key]) keyHistory.push(e.key);
   keys[e.key] = true;
-  if (['w','a','s','d'].includes(e.key)) {
+  // Use Arrow keys for movement
+  const movementKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if (movementKeys.includes(e.key)) {
     // Remove if already present, then push to end
     movementKeyOrder = movementKeyOrder.filter(k => k !== e.key);
     movementKeyOrder.push(e.key);
@@ -62,7 +64,8 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
   keys[e.key] = false;
   keyHistory = keyHistory.filter(k => k !== e.key);
-  if (['w','a','s','d'].includes(e.key)) {
+  const movementKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if (movementKeys.includes(e.key)) {
     movementKeyOrder = movementKeyOrder.filter(k => k !== e.key);
     // If we just went from 2+ keys to 1, start the sticky diagonal timer
     const active = movementKeyOrder.filter(k => keys[k]);
@@ -114,14 +117,15 @@ function getPlayerSpeed() {
 
 function getMoveDirection() {
   // Use the last two pressed movement keys that are still held
-  const dirs = { w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
+  // Arrow key mapping
+  const dirs = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
   let dx = 0, dy = 0;
   const active = movementKeyOrder.filter(k => keys[k]);
   if (active.length >= 2) {
     const k1 = active[active.length - 1];
     const k2 = active[active.length - 2];
-    dx = dirs[k1][0] + dirs[k2][0];
-    dy = dirs[k1][1] + dirs[k2][1];
+    dx = (dirs[k1]?.[0] || 0) + (dirs[k2]?.[0] || 0);
+    dy = (dirs[k1]?.[1] || 0) + (dirs[k2]?.[1] || 0);
     lastDiagonal = { dx, dy };
     if (diagonalTimer) {
       clearTimeout(diagonalTimer);
@@ -132,8 +136,8 @@ function getMoveDirection() {
     dx = lastDiagonal.dx;
     dy = lastDiagonal.dy;
   } else if (active.length === 1) {
-    dx = dirs[active[0]][0];
-    dy = dirs[active[0]][1];
+    dx = dirs[active[0]]?.[0] || 0;
+    dy = dirs[active[0]]?.[1] || 0;
     lastDiagonal = null;
   } else {
     lastDiagonal = null;
